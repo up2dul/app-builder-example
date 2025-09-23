@@ -20,7 +20,7 @@
 
 ## Research & Implementation
 
-- When implementing new features, use `context7` first to fetch relevant package documentation
+- When implementing new features, use `context7` MCP first to fetch relevant package documentation
 - Review official docs and best practices before coding
 - Understand the package API thoroughly before implementation
 
