@@ -1,9 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from scalar_fastapi import get_scalar_api_reference
+from scalar_fastapi import scalar_fastapi
 
 from app.core.settings import settings
-from app.router.example_router import example_router
+from app.router.project_router import project_router
+from app.router.session_router import session_router
 
 settings.logger.setup_logger()
 
@@ -22,7 +23,8 @@ app.add_middleware(
     allow_headers=settings.app_settings.ALLOW_HEADERS,
 )
 
-app.include_router(example_router)
+app.include_router(project_router)
+app.include_router(session_router)
 
 if settings.app_settings.DEBUG:
     from fastapi.staticfiles import StaticFiles
@@ -32,7 +34,7 @@ if settings.app_settings.DEBUG:
 
 @app.get("/scalar", include_in_schema=False)
 def read_scalar():
-    return get_scalar_api_reference(
+    return scalar_fastapi.get_scalar_api_reference(
         title=settings.app_settings.APP_NAME,
         openapi_url="/openapi.json",
     )
