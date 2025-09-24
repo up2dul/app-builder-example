@@ -1,7 +1,7 @@
 import json
 from typing import List, Optional, Sequence
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
@@ -39,7 +39,7 @@ def get_session(session_id: str, session: Session = Depends(db_session)) -> Sess
     statement = select(SessionModel).where(SessionModel.id == session_id, not SessionModel.is_deleted)
     session_obj = session.exec(statement).first()
     if not session_obj:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
     return session_obj
 
 
@@ -49,7 +49,7 @@ def create_session(session_data: SessionCreateRequest, session: Session = Depend
     project_statement = select(Project).where(Project.id == session_data.project_id, not Project.is_deleted)
     project = session.exec(project_statement).first()
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     session_obj = SessionModel(
         project_id=session_data.project_id,
@@ -71,7 +71,7 @@ def update_session(
     statement = select(SessionModel).where(SessionModel.id == session_id, not SessionModel.is_deleted)
     session_obj = session.exec(statement).first()
     if not session_obj:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
     if session_data.name is not None:
         session_obj.name = session_data.name
@@ -84,13 +84,13 @@ def update_session(
     return session_obj
 
 
-@session_router.delete("/{session_id}", status_code=204)
+@session_router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_session(session_id: str, session: Session = Depends(db_session)) -> None:
     """Delete a session (soft delete)"""
     statement = select(SessionModel).where(SessionModel.id == session_id, not SessionModel.is_deleted)
     session_obj = session.exec(statement).first()
     if not session_obj:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
     session_obj.is_deleted = True
     session.add(session_obj)
@@ -102,7 +102,7 @@ async def query_session(
     session_id: str,
     query_data: SessionCreateRequest,
     session: Session = Depends(db_session),
-):
+) -> StreamingResponse:
     """Query a specific session by ID using LLM agent with streaming response"""
     statement = (
         select(SessionModel, Project)
@@ -111,7 +111,7 @@ async def query_session(
     )
     result = session.exec(statement).first()
     if not result:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
     session_obj, project_obj = result
     project_info = ProjectInfo(id=project_obj.id, name=project_obj.name, port=project_obj.port)

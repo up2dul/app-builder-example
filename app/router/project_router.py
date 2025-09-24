@@ -1,6 +1,6 @@
 from typing import List, Sequence
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from app.database.engine import db_session
@@ -26,13 +26,13 @@ def list_projects(session: Session = Depends(db_session)) -> Sequence[Project]:
     return projects
 
 
-@project_router.delete("/{project_id}", status_code=204)
+@project_router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(project_id: str, session: Session = Depends(db_session)) -> None:
     """Delete a project (soft delete)"""
     statement = select(Project).where(Project.id == project_id, Project.is_deleted == False)  # noqa: E712
     project = session.exec(statement).first()
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
     # Stop the server process if it's running
     if project.server_pid:
@@ -50,7 +50,7 @@ def get_project(project_id: str, session: Session = Depends(db_session)) -> Proj
     statement = select(Project).where(Project.id == project_id, Project.is_deleted == False)  # noqa: E712
     project = session.exec(statement).first()
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
     return project
 
 
@@ -64,13 +64,15 @@ async def create_project(
 
     port = generate_available_port()
     if port is None:
-        raise HTTPException(status_code=500, detail="Unable to generate available port")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unable to generate available port"
+        )
 
     existing_project = db_session_dep.exec(
         select(Project).where(Project.port == port, Project.is_deleted == False)  # noqa: E712
     ).first()
     if existing_project:
-        raise HTTPException(status_code=400, detail=f"Port {port} is already in use")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Port {port} is already in use")
 
     # Create the project
     project = Project(
