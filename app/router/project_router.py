@@ -1,7 +1,6 @@
 from typing import List, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from app.database.engine import db_session
@@ -22,7 +21,7 @@ project_router = APIRouter(
 @project_router.get("/", response_model=List[ProjectResponse])
 def list_projects(session: Session = Depends(db_session)) -> Sequence[Project]:
     """List all projects"""
-    statement = select(Project).where(not Project.is_deleted)
+    statement = select(Project).where(Project.is_deleted == False)  # noqa: E712
     projects = session.exec(statement).all()
     return projects
 
@@ -30,7 +29,7 @@ def list_projects(session: Session = Depends(db_session)) -> Sequence[Project]:
 @project_router.delete("/{project_id}", status_code=204)
 def delete_project(project_id: str, session: Session = Depends(db_session)) -> None:
     """Delete a project (soft delete)"""
-    statement = select(Project).where(Project.id == project_id, not Project.is_deleted)
+    statement = select(Project).where(Project.id == project_id, Project.is_deleted == False)  # noqa: E712
     project = session.exec(statement).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -48,7 +47,7 @@ def delete_project(project_id: str, session: Session = Depends(db_session)) -> N
 @project_router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: str, session: Session = Depends(db_session)) -> Project:
     """Get a specific project by ID"""
-    statement = select(Project).where(Project.id == project_id, not Project.is_deleted)
+    statement = select(Project).where(Project.id == project_id, Project.is_deleted == False)  # noqa: E712
     project = session.exec(statement).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -56,50 +55,63 @@ def get_project(project_id: str, session: Session = Depends(db_session)) -> Proj
 
 
 @project_router.post("/", response_model=ProjectResponse)
-async def create_project(project_data: ProjectCreateRequest, session: Session = Depends(db_session)) -> Project | None:
+async def create_project(
+    project_data: ProjectCreateRequest, db_session_dep: Session = Depends(db_session)
+) -> Project | None:
     """Create a new project"""
     project_info = generate_app_info(project_data.description)
-    project = project_info.model_dump()
+    project_dict = project_info.model_dump()
 
     port = generate_available_port()
-    existing_project = session.exec(select(Project).where(Project.port == port, not Project.is_deleted)).first()
+    if port is None:
+        raise HTTPException(status_code=500, detail="Unable to generate available port")
+
+    existing_project = db_session_dep.exec(
+        select(Project).where(Project.port == port, Project.is_deleted == False)  # noqa: E712
+    ).first()
     if existing_project:
         raise HTTPException(status_code=400, detail=f"Port {port} is already in use")
 
+    # Create the project
     project = Project(
-        name=project["name"],
-        description=project["description"],
+        name=project_dict["name"],
+        description=project_dict["description"],
         port=port,
+        project_metadata={},  # Initialize empty metadata dict
     )
-    session.add(project)
-    session.commit()
-    session.refresh(project)
+    db_session_dep.add(project)
+    db_session_dep.commit()
+    db_session_dep.refresh(project)
 
-    first_session = SessionModel(project_id=project.id, name="Initial Session", messages=[])
-    session.add(first_session)
-    session.commit()
-    session.refresh(first_session)
+    # Create the initial session
+    initial_session = SessionModel(project_id=project.id, name="Initial Session", messages=[])
+    db_session_dep.add(initial_session)
+    db_session_dep.commit()
+    db_session_dep.refresh(initial_session)
 
     # Initialize sandbox
     try:
         sandbox_result, server_pid = setup_sandbox(project.id, port)
         if server_pid:
             project.server_pid = server_pid
+            if project.project_metadata is None:
+                project.project_metadata = {}
             project.project_metadata["sandbox_status"] = "initialized"
             project.project_metadata["sandbox_error"] = sandbox_result
         else:
+            if project.project_metadata is None:
+                project.project_metadata = {}
             project.project_metadata["sandbox_status"] = "failed"
             project.project_metadata["sandbox_error"] = sandbox_result
     except Exception as e:
+        if project.project_metadata is None:
+            project.project_metadata = {}
         project.project_metadata["sandbox_status"] = "failed"
         project.project_metadata["sandbox_error"] = str(e)
 
-        session.add(project)
-        session.commit()
-        session.refresh(project)
+    # Final commit for sandbox updates
+    db_session_dep.add(project)
+    db_session_dep.commit()
+    db_session_dep.refresh(project)
 
-    project_with_sessions = session.exec(
-        select(Project).options(selectinload(Project.sessions)).where(Project.id == project.id)
-    ).first()
-
-    return project_with_sessions
+    return project
